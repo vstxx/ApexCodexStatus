@@ -1,0 +1,4 @@
+bin/
+preview_out/
+testdata/scratch/
+*.log
