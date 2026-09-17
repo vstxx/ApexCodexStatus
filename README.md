@@ -33,10 +33,30 @@ Updates are event-driven: a 1 Hz tick redraws, the framebuffer is hashed, and id
 frames are never transmitted. See `docs/FINDINGS.md` for the empirically verified event
 mapping and `docs/ARCHITECTURE.md` for the package design.
 
+## Supported devices
+
+ACS binds a GameSense handler for the **128×40** screen class (`screened-128x40`) and
+renders for that canvas. It works with every keyboard GG reports in this class —
+**Apex 5, Apex 7, Apex 7 TKL, Apex Pro, Apex Pro TKL** — with no per-device setup. Verified
+on an Apex 5; the frame format is byte-identical across the class.
+
+Other GameSense screens are a different class and stay untouched (nothing appears on them):
+
+| screen | devices | supported |
+|---|---|---|
+| 128×40 | Apex 5 / 7 / 7 TKL / Pro / Pro TKL | yes |
+| 128×36 | Arctis Nova Pro, GameDAC Gen 2 | not yet |
+| 128×52 | newer Apex Pro generations | not yet |
+
+The GameSense API allows several resolutions in a single frame (`image-data-128x36`,
+`-128x40`, `-128x48`, `-128x52` in one payload — GG picks what the connected device
+needs), so multi-screen support means binding the extra handlers and adding renderer
+layout variants per resolution (see `docs/ARCHITECTURE.md`). Contributions welcome.
+
 ## Requirements
 
 - Windows 10/11
-- [SteelSeries GG](https://steelseries.com/gg) running (GameSense local API; the Apex 5
+- [SteelSeries GG](https://steelseries.com/gg) running (GameSense local API; the keyboard
   connected through GG as usual)
 - OpenAI Codex VS Code extension or CLI (sessions under `~\.codex\sessions`)
 - Nothing else: single Go binary, no admin rights, loopback traffic only
