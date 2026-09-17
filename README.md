@@ -61,9 +61,11 @@ layout variants per resolution (see `docs/ARCHITECTURE.md`). Contributions welco
 - OpenAI Codex VS Code extension or CLI (sessions under `~\.codex\sessions`)
 - Nothing else: single Go binary, no admin rights, loopback traffic only
 
-## Build
+## Download / Build
 
-Install [Go](https://go.dev) 1.22+, then:
+Prebuilt: grab [`ACS.exe`](https://github.com/vstxx/ApexCodexStatus/releases/latest) (plus
+`SHA256SUMS.txt`) from Releases — unsigned, so SmartScreen may ask for confirmation on
+first run. To build instead, install [Go](https://go.dev) 1.22+ and run:
 
 ```
 go build -ldflags "-s -w -H=windowsgui -X codexconnector/internal/app.Version=v0.2.0" -o bin/codexconnector.exe ./cmd/codexconnector
