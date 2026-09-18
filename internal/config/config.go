@@ -24,6 +24,28 @@ type Config struct {
 	ShowClockIdle bool `json:"show_clock_when_idle"`
 	// Fallback poll interval for the session watcher (milliseconds).
 	PollIntervalMS int `json:"poll_interval_ms"`
+	// Release the OLED while VS Code is not running (default true).
+	// With CLI-only setups set this to false to always own the display.
+	RequireVSCode *bool `json:"require_vscode"`
+	// Processes whose presence keeps ACS engaged (VS Code by default).
+	WatchProcesses []string `json:"watch_processes"`
+}
+
+// RequireVSCodeEnabled reports whether OLED ownership is gated on the
+// watched processes. Missing field defaults to true.
+func (c Config) RequireVSCodeEnabled() bool {
+	if c.RequireVSCode == nil {
+		return true
+	}
+	return *c.RequireVSCode
+}
+
+// WatchList returns the process image names that keep ACS engaged.
+func (c Config) WatchList() []string {
+	if len(c.WatchProcesses) == 0 {
+		return []string{"code.exe", "code - insiders.exe"}
+	}
+	return c.WatchProcesses
 }
 
 // Defaults returns the shipped configuration.

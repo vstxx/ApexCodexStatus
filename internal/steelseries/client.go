@@ -213,6 +213,20 @@ func (c *Client) Send(fb *render.FB, now time.Time) error {
 	return nil
 }
 
+// Disengage releases the OLED immediately: the game is removed from GG so
+// the device returns to its own configured content without waiting for the
+// deinitialize window. Idempotent; safe to call repeatedly.
+func (c *Client) Disengage() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.endpoint != "" {
+		_ = postJSON(c.http, c.endpoint+"/remove_game", map[string]string{"game": Game})
+	}
+	c.registered = false
+	c.lastHash = 0
+	c.lastRegister = time.Time{}
+}
+
 // Heartbeat resets GG's game-deactivation timer. A failing heartbeat is
 // treated as connection loss: the client de-registers itself so the next
 // EnsureReady re-registers and re-sends the current frame.

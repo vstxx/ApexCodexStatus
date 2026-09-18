@@ -169,8 +169,8 @@ func New() (*Tray, error) {
 		uintptr(unsafe.Pointer(className)), // class
 		uintptr(unsafe.Pointer(title)),     // title
 		wsPopup, 0, 0, 0, 0,                // style (hidden), x, y, w, h
-		0,                                  // parent
-		0,                                  // menu
+		0, // parent
+		0, // menu
 		uintptr(wc.HInstance),
 		0, // param
 	)

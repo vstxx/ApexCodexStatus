@@ -1,4 +1,5 @@
 bin/
+build/
 preview_out/
 testdata/scratch/
 *.log

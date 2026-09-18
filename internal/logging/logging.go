@@ -110,6 +110,9 @@ func (l *Logger) Logf(level Level, format string, args ...any) {
 // Debugf logs at debug level.
 func (l *Logger) Debugf(format string, args ...any) { l.Logf(Debug, format, args...) }
 
+// Info logs at info level.
+func (l *Logger) Infof(format string, args ...any) { l.Logf(Info, format, args...) }
+
 // Warnf logs at warn level.
 func (l *Logger) Warnf(format string, args ...any) { l.Logf(Warn, format, args...) }
 

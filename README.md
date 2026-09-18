@@ -68,7 +68,7 @@ Prebuilt: grab [`ACS.exe`](https://github.com/vstxx/ApexCodexStatus/releases/lat
 first run. To build instead, install [Go](https://go.dev) 1.22+ and run:
 
 ```
-go build -ldflags "-s -w -H=windowsgui -X codexconnector/internal/app.Version=v0.2.0" -o bin/codexconnector.exe ./cmd/codexconnector
+go build -ldflags "-s -w -H=windowsgui -X codexconnector/internal/app.Version=v0.3.0" -o bin/codexconnector.exe ./cmd/codexconnector
 ```
 
 `-H=windowsgui` keeps the console hidden for the tray app. The Go module keeps the early
@@ -98,6 +98,21 @@ frame), Diagnostics, Open config, **Autostart** (per-user Run key, no elevation)
 Exit. Left-click opens the same menu. The icon color follows the state
 (green / blue ✓ / amber ! / red ! / gray × / dim).
 
+## VS Code gating
+
+By default ACS **owns the OLED only while VS Code (or a watched process) is running**:
+
+- VS Code closes -> ACS removes its game from GG immediately (remove_game), so the OLED
+  returns to GG's own configured content instantly - no lag, no stale frames. ACS itself
+  keeps running: session monitoring, the state machine and the tray continue as usual
+  (dim icon, "ACS: standby (VS Code closed)").
+- VS Code starts -> ACS re-registers with GameSense and the live frame is back within a
+  second, exactly where things left off.
+
+The gate is polled every 5 s (microsecond-cost process snapshot). It is configurable -
+watch_processes decides which programs keep ACS engaged (add the ChatGPT desktop app if
+you use it), and require_vscode: false disables gating entirely for CLI-only setups.
+
 ## Configuration
 
 `%APPDATA%\CodexConnector\config.json` (defaults shown; created on first save; display
@@ -109,7 +124,9 @@ settings hot-reload):
   "fail_hold_seconds": 25,
   "idle_blank_minutes": 10,
   "show_clock_when_idle": true,
-  "poll_interval_ms": 2000
+  "poll_interval_ms": 2000,
+  "require_vscode": true,
+  "watch_processes": ["code.exe", "code - insiders.exe"]
 }
 ```
 
@@ -117,7 +134,8 @@ settings hot-reload):
 terminal states persist. After a task finishes the OLED keeps the whole frame
 (repository, last action, rates, frozen task time) with `DONE` instead of `WORKING`,
 until new Codex activity starts. `idle_blank_minutes` blanks the display only in plain
-`IDLE` (burn-in protection); a paused display shows a blank frame.
+`IDLE` (burn-in protection); a paused display shows a blank frame. With gating enabled
+the OLED is released to GG whenever no watched process is running.
 
 ## What the OLED shows, and how honestly
 

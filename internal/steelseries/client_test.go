@@ -293,3 +293,54 @@ func TestPeriodicReregistration(t *testing.T) {
 		t.Fatal("periodic re-registration did not happen")
 	}
 }
+
+func TestDisengageReleasesAndReregisters(t *testing.T) {
+	rs := newRecordingServer(t, 0)
+	c := NewClient()
+	c.discover = func() (string, error) { return rs.URL, nil }
+	if _, err := c.EnsureReady(time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	<-rs.requested // metadata
+	<-rs.requested // bind
+	fb := &render.FB{}
+	fb.Set(2, 2)
+	if err := c.Send(fb, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	<-rs.requested // frame
+
+	// Disengage posts remove_game and drops the registration instantly.
+	c.Disengage()
+	select {
+	case req := <-rs.requested:
+		if req.path != "/remove_game" || !strings.Contains(req.body, `"game":"`+Game+`"`) {
+			t.Fatalf("disengage post = %s %s", req.path, req.body)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("remove_game never posted")
+	}
+	if err := c.Send(fb, time.Now()); err == nil {
+		t.Fatal("send should fail while disengaged")
+	}
+	if err := c.Heartbeat(); err != nil {
+		t.Fatalf("heartbeat must be a silent no-op while disengaged: %v", err)
+	}
+
+	// Re-engaging is a plain EnsureReady: full re-registration + frame.
+	if _, err := c.EnsureReady(time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if req := <-rs.requested; req.path != "/game_metadata" {
+		t.Fatalf("re-engage first post = %s", req.path)
+	}
+	if req := <-rs.requested; req.path != "/bind_game_event" {
+		t.Fatalf("re-engage second post = %s", req.path)
+	}
+	if err := c.Send(fb, time.Now()); err != nil {
+		t.Fatalf("frame after re-engage: %v", err)
+	}
+	if req := <-rs.requested; req.path != "/game_event" {
+		t.Fatalf("frame post = %s", req.path)
+	}
+}

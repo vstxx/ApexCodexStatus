@@ -78,10 +78,19 @@ func Run(opts Options, stop <-chan struct{}) error {
 	defer ticker.Stop()
 	beats := 0       // seconds since the last GameSense heartbeat
 	sinceResend := 0 // seconds since the frame was last force-refreshed
+	gateSec := 0     // seconds since the last VS Code presence check
 	idleSince := time.Now()
 	blanked := false
+	// Gate check runs before the first frame so a VS Code-less start never
+	// touches the OLED.
+	vscodeFound := winutil.ProcessRunning(opts.Config.WatchList()...)
+	engaged := !opts.Config.RequireVSCodeEnabled() || vscodeFound
+	if !engaged {
+		a.log.Infof("starting disengaged (VS Code closed): OLED stays with GG")
+	}
 	var lastUI state.UIState
 	var lastHash uint64
+	lastTray := ""
 	settle := 3 // skip rendering while startup history replay settles
 
 	for {
@@ -102,7 +111,16 @@ func Run(opts Options, stop <-chan struct{}) error {
 				continue
 			}
 
-			// Idle blanking (OLED burn-in protection).
+			// VS Code gating: while the editor is closed the OLED is handed
+			// back to GG's own configuration; opening it re-engages ACS.
+			gateSec++
+			if gateSec >= 5 {
+				gateSec = 0
+				vscodeFound = winutil.ProcessRunning(cfg.WatchList()...)
+			}
+			wantEngaged := !cfg.RequireVSCodeEnabled() || vscodeFound
+
+			// Idle blanking (OLED burn-in protection; only while we render).
 			blankAfter := cfg.IdleBlank()
 			if ui.Status != state.StatusIdle {
 				idleSince = now
@@ -111,63 +129,104 @@ func Run(opts Options, stop <-chan struct{}) error {
 				blanked = true
 			}
 
-			// Connection + frames (EnsureReady applies bounded backoff).
-			reRegistered, err := a.client.EnsureReady(now)
-			if err != nil {
-				a.log.Debugf("gamesense: %v", err)
-			} else if !a.paused.Load() {
-				if reRegistered {
-					// Fresh bind shows a blank: force the current frame out.
+			// Always render the current state — the tray preview stays
+			// truthful even while disengaged.
+			a.lastFrame = render.FB{}
+			render.Layout(&a.lastFrame, ui, now, render.Opts{
+				ShowClock: cfg.ShowClockIdle,
+				Blanked:   blanked,
+			})
+
+			if wantEngaged {
+				if !engaged {
+					engaged = true
 					lastHash = 0
-					a.client.Invalidate()
 					sinceResend = 0
+					a.client.Invalidate()
+					a.log.Infof("OLED engaged (%s)", vscodeStateText(vscodeFound, cfg))
 				}
-				a.lastFrame = render.FB{}
-				render.Layout(&a.lastFrame, ui, now, render.Opts{
-					ShowClock: cfg.ShowClockIdle,
-					Blanked:   blanked,
-				})
-				// Static frames (DONE/FAIL/STOP/IDLE) otherwise never re-send;
-				// GG deactivates a game that goes quiet, so push the current
-				// frame through at least every 30 s regardless of the hash.
-				sinceResend++
-				force := sinceResend >= 30
-				if force {
-					a.client.Invalidate() // bypass the client-side hash too
-				}
-				if hash := a.lastFrame.Hash(); force || hash != lastHash {
-					if err := a.client.Send(&a.lastFrame, now); err != nil {
-						a.log.Warnf("send frame: %v", err)
-					} else {
-						lastHash = hash
+				// Connection + frames (EnsureReady applies bounded backoff).
+				reRegistered, err := a.client.EnsureReady(now)
+				if err != nil {
+					a.log.Debugf("gamesense: %v", err)
+				} else {
+					if reRegistered {
+						// Fresh bind shows a blank: force the current frame out.
+						lastHash = 0
+						a.client.Invalidate()
+						sinceResend = 0
+					}
+					if !a.paused.Load() {
+						// Static frames (DONE/FAIL/STOP/IDLE) otherwise never
+						// re-send; GG deactivates a game that goes quiet, so
+						// push the current frame at least every 30 s.
+						sinceResend++
+						force := sinceResend >= 30
+						if force {
+							a.client.Invalidate() // bypass the client-side hash too
+						}
+						if hash := a.lastFrame.Hash(); force || hash != lastHash {
+							if err := a.client.Send(&a.lastFrame, now); err != nil {
+								a.log.Warnf("send frame: %v", err)
+							} else {
+								lastHash = hash
+							}
+						}
+						if force {
+							sinceResend = 0
+						}
+					}
+
+					// Heartbeat every 5 s so GG never falls back to its own
+					// configuration while ACS owns the display.
+					beats++
+					if beats >= 5 {
+						beats = 0
+						if err := a.client.Heartbeat(); err != nil {
+							a.log.Debugf("heartbeat: %v", err)
+						}
 					}
 				}
-				if force {
-					sinceResend = 0
-				}
+			} else if engaged {
+				engaged = false
+				a.client.Disengage()
+				a.log.Infof("OLED released to GG (%s)", vscodeStateText(vscodeFound, cfg))
 			}
 
-			// Heartbeat: GG deactivates a game that sends nothing for its
-			// deinitialize window (we register 60 s); beat every 5 s so the
-			// OLED never falls back to GG's own configuration. A failing
-			// heartbeat de-registers us; EnsureReady re-registers above.
-			beats++
-			if beats >= 5 {
-				beats = 0
-				if err := a.client.Heartbeat(); err != nil {
-					a.log.Debugf("heartbeat: %v", err)
+			// Tray reflects engagement as well as Codex state.
+			trayText, trayIcon := trayPresentation(ui, engaged)
+			if trayText != lastTray {
+				if opts.Tray != nil {
+					opts.Tray.SetStatus(trayText, trayIcon)
 				}
+				lastTray = trayText
 			}
-
 			if significantChange(ui, lastUI) {
 				a.log.Debugf("state: %s (%s | %s | %s)", ui.Status, ui.Project, ui.Action, ui.Detail)
-				if opts.Tray != nil {
-					opts.Tray.SetStatus("ACS: "+ui.Status.String(), trayIconFor(ui.Status))
-				}
 				lastUI = ui
 			}
 		}
 	}
+}
+
+// vscodeStateText describes the gate condition for log lines.
+func vscodeStateText(found bool, cfg config.Config) string {
+	if !cfg.RequireVSCodeEnabled() {
+		return "gating disabled"
+	}
+	if found {
+		return "VS Code running"
+	}
+	return "VS Code closed"
+}
+
+// trayPresentation maps the UI state and engagement onto tray text + icon.
+func trayPresentation(ui state.UIState, engaged bool) (string, string) {
+	icon := trayIconFor(ui.Status)
+	if !engaged {
+		return "ACS: standby (VS Code closed)", "idle"
+	}
+	return "ACS: " + ui.Status.String(), icon
 }
 
 // significantChange compares only the fields a human would notice; the

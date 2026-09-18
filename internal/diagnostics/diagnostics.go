@@ -13,6 +13,7 @@ import (
 	"codexconnector/internal/config"
 	"codexconnector/internal/render"
 	"codexconnector/internal/steelseries"
+	"codexconnector/internal/winutil"
 )
 
 // Check is one diagnostic line.
@@ -71,6 +72,21 @@ func Run(cfg config.Config) []Check {
 		} else {
 			out = append(out, Check{"Recent Codex activity", false, "no session written in the last 24h"})
 		}
+	}
+
+	// VS Code presence (OLED gating).
+	if cfg.RequireVSCodeEnabled() {
+		names := cfg.WatchList()
+		if winutil.ProcessRunning(names...) {
+			out = append(out, Check{"VS Code (OLED gate)", true,
+				"running — ACS owns the OLED"})
+		} else {
+			out = append(out, Check{"VS Code (OLED gate)", true,
+				"not running — OLED released to GG (standby)"})
+		}
+	} else {
+		out = append(out, Check{"VS Code (OLED gate)", true,
+			"gating disabled — ACS always owns the OLED"})
 	}
 
 	// Renderer self-test: hash of a known frame must be stable.
